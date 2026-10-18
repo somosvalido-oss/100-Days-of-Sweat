@@ -78,6 +78,15 @@
       <p><button class="btn block" id="saveBtn">Save day</button></p>
     </form>
 
+    <h2>Benchmarks</h2>
+    <p class="small muted">Test yourself on day 1, 50 and 100 (or any day you like). Results are shown on the public dashboard.</p>
+    <div class="grid2">
+      <div><label for="benchTest">Test</label><select id="benchTest"></select></div>
+      <div><label for="benchValue" id="benchValueLabel">Result</label><input type="text" id="benchValue" autocomplete="off"></div>
+    </div>
+    <p><button class="btn ghost block" id="benchSave" type="button">Add result for this day</button></p>
+    <div class="card" id="benchList" hidden></div>
+
     <h2>Photos for this day</h2>
     <form id="photoForm">
       <input type="file" id="files" accept="image/*" multiple hidden>
@@ -108,6 +117,7 @@ const ACTIVITIES = ["Football", "Run", "Fit Boxing", "Dance", "Gym", "HIIT", "Pa
 const SEG = { intensity: ["1", "2", "3", "4", "5"], mood: ["😞", "😕", "😐", "🙂", "😄"], energy: ["🪫", "▁", "▃", "▅", "⚡"] };
 const state = { intensity: null, mood: null, energy: null };
 let DAYS = null;
+let BENCH = { tests: {}, results: [] };
 
 function toast(msg) { const t = $("#toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 2600); }
 async function api(path, opts = {}) {
@@ -171,7 +181,7 @@ function fillForm(date) {
   if (d.health_workout_minutes) bits.push(`${d.health_workout_minutes} workout min`);
   if (d.active_kcal) bits.push(`${d.active_kcal} kcal`);
   hn.hidden = !bits.length; hn.textContent = "From Apple Health: " + bits.join(" · ");
-  paintSeg(); paintChips(); loadPhotos();
+  paintSeg(); paintChips(); loadPhotos(); paintBench();
 }
 async function loadDays() { DAYS = await api("/api/days"); }
 
@@ -192,6 +202,64 @@ $("#dayForm").addEventListener("submit", async (e) => {
     toast("Saved 💪");
   } catch (err) { toast("Error: " + err.message); }
   btn.disabled = false;
+});
+
+// ---- Benchmarks ----
+// Times are typed as m:ss or h:mm:ss and stored in seconds
+function parseBench(kind, raw) {
+  const v = raw.trim().replace(",", ".");
+  if (kind !== "time") return /^\d+(\.\d+)?$/.test(v) ? Number(v) : null;
+  if (!/^\d+(:\d{1,2}){1,2}$/.test(v)) return null;
+  return v.split(":").reduce((s, part) => s * 60 + Number(part), 0);
+}
+function fmtBench(kind, v) {
+  if (kind !== "time") return String(v);
+  const sec = Math.round(v), h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s = String(sec % 60).padStart(2, "0");
+  return h ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`;
+}
+function benchKind() { return BENCH.tests[$("#benchTest").value]?.kind; }
+function paintBenchInput() {
+  const time = benchKind() === "time";
+  $("#benchValueLabel").textContent = time ? "Time (m:ss)" : "Reps";
+  $("#benchValue").placeholder = time ? "e.g. 27:45" : "e.g. 25";
+  $("#benchValue").inputMode = time ? "text" : "numeric";
+}
+function paintBench() {
+  const rows = BENCH.results.filter((r) => r.date === $("#date").value);
+  $("#benchList").hidden = !rows.length;
+  $("#benchList").innerHTML = rows.map((r) => {
+    const t = BENCH.tests[r.test] || { label: r.test };
+    return `<div class="status-row"><b>${esc(t.label)}</b><span>${esc(fmtBench(t.kind, r.value))}</span><div class="spacer"></div>
+      <button class="btn ghost" style="padding:6px 10px" data-bdel="${r.id}">Delete</button></div>`;
+  }).join("");
+}
+async function loadBench() {
+  BENCH = await api("/api/benchmarks");
+  if (!$("#benchTest").options.length) {
+    $("#benchTest").innerHTML = Object.entries(BENCH.tests).map(([k, t]) => `<option value="${k}">${esc(t.label)}</option>`).join("");
+    paintBenchInput();
+  }
+  paintBench();
+}
+$("#benchTest").addEventListener("change", paintBenchInput);
+$("#benchSave").addEventListener("click", async () => {
+  const value = parseBench(benchKind(), $("#benchValue").value);
+  if (!value) return toast(benchKind() === "time" ? "Enter the time as m:ss, e.g. 27:45" : "Enter a number of reps");
+  $("#benchSave").disabled = true;
+  try {
+    await api("/api/benchmarks", { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ date: $("#date").value, test: $("#benchTest").value, value }) });
+    $("#benchValue").value = "";
+    await loadBench();
+    toast("Benchmark saved 💪");
+  } catch (err) { toast("Error: " + err.message); }
+  $("#benchSave").disabled = false;
+});
+$("#benchList").addEventListener("click", async (e) => {
+  const id = e.target.dataset.bdel;
+  if (!id || !confirm("Delete this result?")) return;
+  try { await api("/api/benchmarks/" + id, { method: "DELETE" }); await loadBench(); }
+  catch (err) { toast("Error: " + err.message); }
 });
 
 // ---- Photos ----
@@ -278,7 +346,7 @@ async function start() {
   if (q.get("connected")) toast(`${q.get("connected")} connected ✓`);
   if (q.get("oauth_error")) toast("Connection failed: " + q.get("oauth_error"));
   $("#date").value = /^\d{4}-\d{2}-\d{2}$/.test(q.get("date") || "") ? q.get("date") : todayMadrid();
-  await loadDays();
+  await Promise.all([loadDays(), loadBench().catch((e) => toast("Benchmarks: " + e.message))]);
   fillForm($("#date").value);
   loadStatus();
 }

@@ -56,5 +56,19 @@ CREATE TABLE IF NOT EXISTS sync_log (
   platform TEXT, ok INTEGER, message TEXT,
   at TEXT DEFAULT (datetime('now'))
 );
+-- Added later via migrations/0001 (kept here so a fresh database gets everything)
+CREATE TABLE IF NOT EXISTS benchmarks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  date TEXT NOT NULL,
+  test TEXT NOT NULL,
+  value REAL NOT NULL,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_benchmarks_test ON benchmarks(test, date);
+CREATE TABLE IF NOT EXISTS auth_failures (
+  ip TEXT NOT NULL,
+  at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_auth_failures ON auth_failures(ip, at);
 INSERT OR IGNORE INTO days (date, day_number, activity, notes)
 VALUES ('2026-10-17', 1, 'Football', 'Day 1: football match with work colleagues');

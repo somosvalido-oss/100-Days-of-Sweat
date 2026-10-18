@@ -36,7 +36,15 @@ function gridImage(days, size) {
     const path = new Path();
     path.addRoundedRect(new Rect(x, y, cell, cell), 2.5, 2.5);
     dc.addPath(path);
-    if (d.status === "done") { dc.setFillColor(C.heat); dc.fillPath(); }
+    if (d.status === "done") {
+      dc.setFillColor(C.heat); dc.fillPath();
+      if (d.full) { // workout + Reel: green corner, as on the dashboard
+        const corner = new Path();
+        corner.addLines([new Point(x + cell, y + cell * 0.45), new Point(x + cell, y + cell), new Point(x + cell * 0.45, y + cell)]);
+        corner.closeSubpath();
+        dc.addPath(corner); dc.setFillColor(C.reel); dc.fillPath();
+      }
+    }
     else if (d.status === "today") { dc.setStrokeColor(C.text); dc.setLineWidth(1.5); dc.strokePath(); }
     else if (d.status === "missed") { dc.setFillColor(C.missed); dc.fillPath(); }
     else { dc.setStrokeColor(C.line); dc.setLineWidth(1); dc.strokePath(); }

@@ -43,16 +43,57 @@ export function safeEqual(a, b) {
   return crypto.subtle.timingSafeEqual(x, y);
 }
 
-/** True when the request carries the admin token (Bearer header or session cookie) */
-export function isAuthed(request, env) {
-  if (!env.ADMIN_TOKEN) return false;
-  const h = request.headers.get("authorization") || "";
-  const bearer = h.startsWith("Bearer ") ? h.slice(7).trim() : null;
-  return safeEqual(bearer, env.ADMIN_TOKEN) || safeEqual(getCookie(request, "s100"), env.ADMIN_TOKEN);
+// Brute-force guard: after MAX_FAILS wrong passwords from one IP in FAIL_WINDOW seconds, that IP is locked out
+const MAX_FAILS = 10;
+const FAIL_WINDOW = 15 * 60;
+const clientIp = (request) => request.headers.get("cf-connecting-ip") || "local";
+
+export async function isLocked(request, env) {
+  const row = await env.DB.prepare("SELECT COUNT(*) AS n FROM auth_failures WHERE ip = ? AND at > ?")
+    .bind(clientIp(request), Math.floor(Date.now() / 1000) - FAIL_WINDOW).first();
+  return (row?.n || 0) >= MAX_FAILS;
 }
 
-export const sessionCookie = (token, maxAge = 60 * 60 * 24 * 180) =>
-  `s100=${encodeURIComponent(token)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`;
+export async function recordFailure(request, env) {
+  const now = Math.floor(Date.now() / 1000);
+  await env.DB.batch([
+    env.DB.prepare("INSERT INTO auth_failures (ip, at) VALUES (?, ?)").bind(clientIp(request), now),
+    env.DB.prepare("DELETE FROM auth_failures WHERE at < ?").bind(now - 86400),
+  ]);
+}
+
+/**
+ * Checks a password against ADMIN_TOKEN with the brute-force guard.
+ * Returns "ok", "wrong" or "locked".
+ */
+export async function checkPassword(request, env, token) {
+  if (!env.ADMIN_TOKEN || typeof token !== "string") return "wrong";
+  if (await isLocked(request, env)) return "locked";
+  if (safeEqual(token, env.ADMIN_TOKEN)) return "ok";
+  await recordFailure(request, env);
+  return "wrong";
+}
+
+/** Session cookie value: HMAC of a fixed label keyed by ADMIN_TOKEN, so the password itself never sits in the cookie */
+export async function sessionValue(env) {
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(env.ADMIN_TOKEN),
+    { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode("s100-session-v1"));
+  return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** True when the request carries the admin token (Bearer header) or a valid session cookie */
+export async function isAuthed(request, env) {
+  if (!env.ADMIN_TOKEN) return false;
+  const h = request.headers.get("authorization") || "";
+  if (h.startsWith("Bearer ")) return (await checkPassword(request, env, h.slice(7).trim())) === "ok";
+  // A 256-bit HMAC can't be guessed, so wrong cookies (e.g. after a password change) are not counted as failures
+  const cookie = getCookie(request, "s100");
+  return !!cookie && safeEqual(cookie, await sessionValue(env));
+}
+
+export const sessionCookie = (value, maxAge = 60 * 60 * 24 * 180) =>
+  `s100=${encodeURIComponent(value)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`;
 
 export const intOrNull = (v, min, max) => {
   if (v === null || v === undefined || v === "") return null;

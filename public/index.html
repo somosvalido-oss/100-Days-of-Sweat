@@ -6,6 +6,14 @@
 <title>100 Days of Sweat</title>
 <meta name="description" content="Alessandro's 100 Days of Sweat challenge — one workout and one Reel every day.">
 <meta name="theme-color" content="#0d0e11">
+<meta property="og:type" content="website">
+<meta property="og:title" content="100 Days of Sweat">
+<meta property="og:description" content="Alessandro's 100 Days of Sweat challenge — one workout and one Reel every day, 17 Oct 2026 → 24 Jan 2027.">
+<meta property="og:url" content="/">
+<meta property="og:image" content="/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/icon-180.png">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
@@ -38,10 +46,12 @@
   <h2>The sheet</h2>
   <div class="grid100" id="grid"></div>
   <div class="legend">
-    <span><i style="background:var(--heat)"></i>Done</span>
+    <span><i style="background:var(--heat)"></i>Workout</span>
+    <span><i class="full-swatch"></i>Workout + Reel</span>
     <span><i style="border:2px solid var(--text)"></i>Today</span>
     <span><i style="background:var(--surface);border:1px solid var(--line)"></i>Missed</span>
-    <span><i style="background:var(--reel);border-radius:50%"></i>Reel posted</span>
+    <span><i style="background:var(--reel);border-radius:50%"></i>Reel only</span>
+    <span><i style="background:var(--muted);height:2px;width:10px;vertical-align:3px"></i>Photos</span>
   </div>
 
   <h2>Training</h2>
@@ -51,9 +61,15 @@
     <div class="card" id="bodyCard" hidden><h3>Weight &amp; resting heart rate</h3><div class="chart"><canvas id="cBody"></canvas></div></div>
   </div>
 
+  <div id="benchSection" hidden>
+    <h2>Benchmarks</h2>
+    <div class="kpis bench" id="benchKpis"></div>
+    <div class="card" style="margin-top:12px"><h3 id="benchTitle"></h3><div class="chart"><canvas id="cBench"></canvas></div></div>
+  </div>
+
   <h2>Content</h2>
   <div class="cards">
-    <div class="card"><h3>Views per day</h3><div class="chart"><canvas id="cViews"></canvas></div></div>
+    <div class="card"><h3>Views by post date</h3><p class="small muted card-note">Each post's total views, counted on the day it was posted</p><div class="chart"><canvas id="cViews"></canvas></div></div>
     <div class="card"><h3>Followers</h3><div class="chart"><canvas id="cFollowers"></canvas></div></div>
   </div>
 
@@ -77,15 +93,16 @@ const $ = (s) => document.querySelector(s);
 const fmt = (n) => n == null ? "–" : n >= 10000 ? (n / 1000).toFixed(n >= 100000 ? 0 : 1) + "k" : n.toLocaleString("en");
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const MOOD = ["", "😞", "😕", "😐", "🙂", "😄"];
-let DATA, SUM, PHOTOS = [];
+let DATA, SUM, PHOTOS = [], BENCH = { tests: {}, results: [] }, benchSel = null;
 
 async function load() {
-  const [d, s, p] = await Promise.all([
+  const [d, s, p, b] = await Promise.all([
     fetch("/api/days").then((r) => r.json()),
     fetch("/api/summary").then((r) => r.json()),
     fetch("/api/photos").then((r) => r.json()).catch(() => []),
+    fetch("/api/benchmarks").then((r) => r.json()).catch(() => null),
   ]);
-  DATA = d; SUM = s; PHOTOS = Array.isArray(p) ? p : [];
+  DATA = d; SUM = s; PHOTOS = Array.isArray(p) ? p : []; if (b?.results) BENCH = b;
   render();
 }
 
@@ -107,6 +124,7 @@ function render() {
   const kpis = [
     ["Streak", s.streak + (s.streak === 1 ? " day" : " days")],
     ["Days done", `${s.days_done}` + (s.days_missed ? ` <span class="muted small">/ ${s.days_missed} missed</span>` : "")],
+    ["Full days", s.full_days ?? 0],
     ["Minutes", fmt(s.total_minutes)],
     ["Reels", s.reels],
     ["Views", fmt(s.total_views)],
@@ -117,10 +135,11 @@ function render() {
   $("#kpis").innerHTML = kpis.map(([k, v]) => `<div class="kpi"><b>${v}</b><small>${k}</small></div>`).join("");
 
   $("#grid").innerHTML = DATA.days.map((d) =>
-    `<button class="cell ${d.status}${d.day_number === DATA.today_n ? " is-today" : ""}" data-n="${d.day_number}" ${d.status === "future" ? "disabled" : ""} aria-label="Day ${d.day_number}, ${d.status}">${d.day_number}${d.reel ? '<span class="r"></span>' : ""}${d.photos ? '<span class="ph"></span>' : ""}</button>`
+    `<button class="cell ${d.status}${d.full ? " full" : ""}${d.day_number === DATA.today_n ? " is-today" : ""}" data-n="${d.day_number}" ${d.status === "future" ? "disabled" : ""} aria-label="Day ${d.day_number}, ${d.full ? "workout and Reel done" : d.status}${!d.full && d.reel ? ", Reel posted" : ""}">${d.day_number}${d.reel ? '<span class="r"></span>' : ""}${d.photos ? '<span class="ph"></span>' : ""}</button>`
   ).join("");
 
   charts();
+  benchmarks();
 
   if (PHOTOS.length) {
     $("#photoSection").hidden = false;
@@ -173,7 +192,7 @@ function charts() {
   const fs = (p, color) => ({ label: p === "instagram" ? "Instagram" : "TikTok", borderColor: color, backgroundColor: color, tension: .3, pointRadius: 2, spanGaps: true,
     data: dates.map((dt) => f.find((x) => x.date === dt && x.platform === p)?.followers ?? null) });
   chart("cFollowers", { type: "line", data: { labels: dates.map((dt) => DATA.days.find((d) => d.date === dt)?.day_number ?? dt), datasets: [fs("instagram", css("--ig")), fs("tiktok", css("--tt"))] },
-    options: base({ plugins: { legend: { display: true, position: "bottom", labels: { boxWidth: 10 } } }, scales: { x: { grid: { display: false } }, y: { beginAtZero: false } } }) });
+    options: base({ plugins: { legend: { display: true, position: "bottom", labels: { boxWidth: 10 } } }, scales: { x: { grid: { display: false } }, y: { beginAtZero: true } } }) });
 
   if (DATA.authed) {
     $("#moodCard").hidden = false; $("#bodyCard").hidden = false;
@@ -187,6 +206,46 @@ function charts() {
     ] }, options: base({ plugins: { legend: { display: true, position: "bottom", labels: { boxWidth: 10 } } }, scales: { x: { grid: { display: false } }, y: { position: "left" }, y1: { position: "right", grid: { display: false } } } }) });
   }
 }
+
+// ---- Benchmarks ----
+const fmtBench = (t, v) => {
+  if (v == null) return "–";
+  if (t.kind !== "time") return String(+v.toFixed(1));
+  const sec = Math.round(v), h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s = String(sec % 60).padStart(2, "0");
+  return h ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`;
+};
+// Whole-minute (or half-minute) steps for time axes instead of Chart.js's default 3:20, 6:40…
+function timeStep(t, rs) {
+  if (t.kind !== "time") return undefined;
+  const max = Math.max(...rs.map((r) => r.value));
+  return [15, 30, 60, 120, 300, 600, 900].find((s) => max / s <= 8) ?? 1800;
+}
+function benchmarks() {
+  const { tests, results } = BENCH;
+  const keys = Object.keys(tests).filter((k) => results.some((r) => r.test === k));
+  $("#benchSection").hidden = !keys.length;
+  if (!keys.length) return;
+  if (!keys.includes(benchSel)) benchSel = keys[0];
+  $("#benchKpis").innerHTML = keys.map((k) => {
+    const t = tests[k], rs = results.filter((r) => r.test === k);
+    const first = rs[0].value, last = rs.at(-1).value, diff = last - first;
+    const better = t.lower ? diff < 0 : diff > 0;
+    const delta = rs.length > 1 && diff ? `<span class="${better ? "delta" : "muted small"}">${diff > 0 ? "+" : "−"}${fmtBench(t, Math.abs(diff))}</span>` : "";
+    return `<button class="kpi${k === benchSel ? " sel" : ""}" data-k="${k}" aria-pressed="${k === benchSel}"><b>${fmtBench(t, last)}${delta}</b><small>${esc(t.label)}</small></button>`;
+  }).join("");
+  const t = tests[benchSel], rs = results.filter((r) => r.test === benchSel);
+  $("#benchTitle").textContent = t.label + (t.lower ? " · lower is better" : "");
+  chart("cBench", { type: "line", data: { datasets: [{ label: t.label, data: rs.map((r) => ({ x: r.day_number, y: r.value })),
+    borderColor: css("--heat"), backgroundColor: css("--heat"), pointRadius: 4, tension: 0 }] },
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { title: (i) => "Day " + i[0].parsed.x, label: (i) => fmtBench(t, i.parsed.y) } } },
+      scales: { x: { type: "linear", min: 1, max: DATA.total, grid: { display: false }, ticks: { stepSize: 10 }, title: { display: true, text: "Day" } },
+        y: { beginAtZero: true, grid: { color: css("--line") }, ticks: { stepSize: timeStep(t, rs), callback: (v) => fmtBench(t, v) } } } } });
+}
+$("#benchKpis").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-k]"); if (!b) return;
+  benchSel = b.dataset.k; benchmarks();
+});
 
 $("#grid").addEventListener("click", (e) => {
   const c = e.target.closest(".cell"); if (!c || c.disabled) return;
