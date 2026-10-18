@@ -18,7 +18,7 @@ Alessandro's tracker for the Yes Theory "100 Days of Sweat" challenge: one worko
 - Public dashboard, private editing. Single admin password = secret `ADMIN_TOKEN` (Bearer header or HttpOnly cookie `s100`).
 - Mood, energy, weight, resting HR, notes and private photos are hidden from the public API (`PUBLIC_DAY_FIELDS` in `src/index.js`).
 - A day counts as done if it has an activity, minutes > 0, or Apple Health workout minutes > 0. Manual entries win over Health data; Health only fills empty fields.
-- Fitbit Web API shuts down 30 Oct 2026; Google Health API scopes are Restricted (needs review) → deliberately not integrated. Apple Health route instead.
+- Fitbit: legacy Fitbit Web API shuts down 30 Oct 2026 — don't build on it. Google Health API (`https://health.googleapis.com/v4`) IS feasible for personal use: unverified OAuth client (cap 100 users, review only above that), add own Google account as test user, set the consent screen to In production to avoid 7-day refresh-token expiry in Testing mode, link account in the Google Health mobile app first. Not built yet — next step if Alessandro picks a Fitbit/Pixel Watch. Apple Health Shortcut route already exists.
 - Photos resized client-side to 2048 px JPEG before upload (also converts HEIC).
 - Instagram insights fetched for max 25 posts per sync to stay under Workers subrequest limits.
 
@@ -26,6 +26,7 @@ Alessandro's tracker for the Yes Theory "100 Days of Sweat" challenge: one worko
 - Built and tested locally with `wrangler dev` (login, day upsert, health ingest, photo upload/serve, streak, summary, sync error handling).
 - NOT yet deployed: user needs `npx wrangler login`, `npx wrangler secret put ADMIN_TOKEN`, `npm run deploy`.
 - Instagram/TikTok developer apps not yet created (steps in README).
+- Google Health (Fitbit) sync not yet built: add to `src/sync.js` alongside Instagram/TikTok, store tokens in `oauth_tokens` (platform `google_health`), write steps/workout minutes/resting HR into the same `days` columns the Apple Health ingest uses (fill-empty-only).
 - Fields not yet built: benchmark tests (5k time, push-ups, pull-ups, plank, burpees) — a likely next addition, e.g. a `benchmarks` table + chart.
 
 ## Commands
