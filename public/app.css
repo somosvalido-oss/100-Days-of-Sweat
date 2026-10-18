@@ -47,6 +47,9 @@ h2 { font-size: 15px; letter-spacing: .08em; text-transform: uppercase; color: v
 .kpi b { display: block; font-family: var(--display); font-size: 30px; font-weight: 800; line-height: 1.05; font-variant-numeric: tabular-nums; }
 .kpi small { color: var(--muted); font-size: 12px; letter-spacing: .04em; text-transform: uppercase; font-weight: 600; }
 .kpi .delta { color: var(--reel); font-size: 13px; font-weight: 600; margin-left: 4px; }
+.kpis.bench { margin-top: 0; }
+button.kpi { text-align: left; color: inherit; font: inherit; cursor: pointer; }
+button.kpi.sel { border-color: var(--heat); background: var(--heat-soft); }
 
 /* 100 grid */
 .grid100 { display: grid; grid-template-columns: repeat(10, 1fr); gap: 6px; }
@@ -60,6 +63,10 @@ h2 { font-size: 15px; letter-spacing: .08em; text-transform: uppercase; color: v
 .cell.done.is-today { outline: 2px solid var(--text); outline-offset: 2px; }
 .cell .r { position: absolute; top: 4px; right: 4px; width: 6px; height: 6px; border-radius: 50%; background: var(--reel); }
 .cell.done .r { background: #0d3b2f; }
+/* Workout + Reel: orange square with a green corner (replaces the Reel dot) */
+.cell.full { background: linear-gradient(135deg, var(--heat) 70%, var(--reel) 70%); }
+.cell.full .r { display: none; }
+.legend .full-swatch { background: linear-gradient(135deg, var(--heat) 60%, var(--reel) 60%); }
 .cell .ph { position: absolute; bottom: 3px; left: 50%; transform: translateX(-50%); width: 10px; height: 2px; border-radius: 2px; background: currentColor; opacity: .55; }
 .legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; font-size: 12px; color: var(--muted); }
 .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
@@ -68,6 +75,7 @@ h2 { font-size: 15px; letter-spacing: .08em; text-transform: uppercase; color: v
 .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; min-width: 0; }
 .card h3 { font-size: 14px; font-weight: 700; margin-bottom: 10px; }
+.card-note { margin: -6px 0 10px; font-size: 12px; }
 .chart { position: relative; height: 220px; }
 .empty { color: var(--muted); font-size: 14px; padding: 30px 0; text-align: center; }
 

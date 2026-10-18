@@ -3,12 +3,14 @@
   "name": "sweat100",
   "main": "src/index.js",
   "compatibility_date": "2026-10-01",
-  "assets": { "directory": "./public", "binding": "ASSETS" },
+  // run_worker_first for "/" so the Worker can fill in the absolute og:image URL for link previews
+  "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": ["/"] },
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "sweat100",
-      "database_id": "f171b6a7-1f21-4991-aa40-55316404b78c"
+      "database_id": "f171b6a7-1f21-4991-aa40-55316404b78c",
+      "migrations_dir": "migrations"
     }
   ],
   "r2_buckets": [

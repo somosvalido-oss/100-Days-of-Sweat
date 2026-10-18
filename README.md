@@ -3,7 +3,8 @@
 Public dashboard + private logging for the challenge (17 Oct 2026 → 24 Jan 2027), running on Cloudflare.
 
 - **Dashboard** (`/`) — anyone with the link: day counter, streak, the 100-square sheet, minutes, Reel views, followers, public photos.
-- **Log** (`/log.html`) — password protected: workout, minutes, intensity, mood, energy, weight, resting HR, Reel, notes, photos.
+- **Log** (`/log.html`) — password protected: workout, minutes, intensity, mood, energy, weight, resting HR, Reel, notes, photos, benchmark tests.
+- **Benchmarks** — 5k run, push-ups, pull-ups, plank, burpees (2 min); best tested on day 1, 50 and 100. Shown publicly with change since the first test.
 - **Private data** — mood, energy, weight, resting HR, notes and private photos only show when you're logged in.
 - **Auto data** — Instagram + TikTok stats every 3 hours; Apple Health (steps, workouts, resting HR, weight) via an iOS Shortcut.
 - **iPhone widget** — `widget/sweat100-widget.js` for the Scriptable app (home screen and lock screen).
@@ -21,10 +22,15 @@ cd 100-Days-of-Sweat
 npm install
 npx wrangler login                      # opens the browser, log in to Cloudflare
 npx wrangler secret put ADMIN_TOKEN     # type a long password — this is your login
+npm run db:migrate                      # applies database changes in migrations/ (safe to re-run)
 npm run deploy
 ```
 
 Wrangler prints your URL, e.g. `https://sweat100.<your-subdomain>.workers.dev`. Open `/log.html` on your iPhone, log in, then **Share → Add to Home Screen** so logging is one tap away.
+
+After 10 wrong passwords from one IP in 15 minutes, logins from that IP are blocked for 15 minutes (devices already logged in keep working).
+
+Whenever you pull a new version, run `npm run db:migrate` before `npm run deploy`.
 
 Want a custom domain (e.g. `sweat.yourdomain.com`)? Cloudflare dashboard → Workers → sweat100 → Settings → Domains & Routes.
 
@@ -106,9 +112,11 @@ Workers (100k requests/day), D1 (5 GB), R2 (10 GB, no egress fees) and the 3-hou
 | PATCH / DELETE | `/api/photos/:id` | ✓ | Toggle public / delete |
 | POST | `/api/sync` | ✓ | Sync Instagram + TikTok now |
 | GET | `/api/status` | ✓ | Connection status + sync log |
+| GET / POST | `/api/benchmarks` | GET public, POST ✓ | List / add a test result (`date`, `test`, `value` — seconds for times, count for reps) |
+| DELETE | `/api/benchmarks/:id` | ✓ | Delete a test result |
 | GET | `/api/export` | ✓ | Full JSON backup |
 
-Auth = `Authorization: Bearer <ADMIN_TOKEN>` or the login cookie.
+Auth = `Authorization: Bearer <ADMIN_TOKEN>` or the login cookie. Wrong Bearer tokens count towards the login lockout.
 
 ## Local development
 
@@ -126,6 +134,7 @@ src/sync.js       Instagram + TikTok OAuth and sync
 src/util.js       helpers (dates in Europe/Madrid, auth)
 public/           dashboard, log page, styles, icons, manifest
 widget/           Scriptable widget for iPhone
-schema.sql        D1 tables
+schema.sql        D1 tables (full schema for a fresh database)
+migrations/       changes to the live database, applied with `npm run db:migrate`
 wrangler.jsonc    Cloudflare config (D1, R2, cron)
 ```

@@ -1,7 +1,7 @@
 // 100 Days of Sweat — Cloudflare Worker (API + static site)
 import {
-  json, err, localDate, dayNumber, dateForDay, isDate, isAuthed, safeEqual,
-  sessionCookie, intOrNull, numOrNull, strOrNull,
+  json, err, localDate, dayNumber, dateForDay, isDate, isAuthed, checkPassword,
+  sessionCookie, sessionValue, intOrNull, numOrNull, strOrNull,
 } from "./util.js";
 import { startOAuth, finishOAuth, syncAll } from "./sync.js";
 
@@ -9,6 +9,14 @@ const DONE_SQL = `(COALESCE(minutes,0) > 0 OR (activity IS NOT NULL AND activity
 const PUBLIC_DAY_FIELDS = ["date", "day_number", "activity", "minutes", "intensity", "reel_done", "reel_url", "steps", "health_workout_minutes"];
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif", "image/gif"];
 const MAX_PHOTO_BYTES = 20 * 1024 * 1024;
+// Benchmark tests: "time" values are stored in seconds, "reps" as a count. lower = smaller is better.
+export const BENCHMARKS = {
+  run_5k:  { label: "5k run",        kind: "time", lower: true },
+  pushups: { label: "Push-ups",      kind: "reps" },
+  pullups: { label: "Pull-ups",      kind: "reps" },
+  plank:   { label: "Plank",         kind: "time" },
+  burpees: { label: "Burpees (2 min)", kind: "reps" },
+};
 
 export default {
   async fetch(request, env, ctx) {
@@ -18,7 +26,7 @@ export default {
       if (p.startsWith("/api/")) return await api(request, env, ctx, url);
       if (p.startsWith("/photo/")) return await servePhoto(request, env, p.slice(7));
       if (p.startsWith("/connect/")) {
-        if (!isAuthed(request, env)) return Response.redirect(`${url.origin}/log.html`, 302);
+        if (!(await isAuthed(request, env))) return Response.redirect(`${url.origin}/log.html`, 302);
         return Response.redirect(await startOAuth(p.slice(9), env, url.origin), 302);
       }
       if (p.startsWith("/callback/")) {
@@ -30,6 +38,7 @@ export default {
           return Response.redirect(`${url.origin}/log.html?oauth_error=${encodeURIComponent(e.message)}`, 302);
         }
       }
+      if (p === "/") return await dashboardPage(request, env, url);
       return env.ASSETS ? env.ASSETS.fetch(request) : new Response("Not found", { status: 404 });
     } catch (e) {
       console.error(e);
@@ -45,15 +54,17 @@ export default {
 async function api(request, env, ctx, url) {
   const p = url.pathname.replace(/\/+$/, "");
   const m = request.method;
-  const authed = isAuthed(request, env);
+  const authed = await isAuthed(request, env);
   const need = () => (authed ? null : err("Unauthorized", 401));
 
   // ---- auth ----
   if (p === "/api/login" && m === "POST") {
     const { token } = await request.json().catch(() => ({}));
     if (!env.ADMIN_TOKEN) return err("ADMIN_TOKEN secret is not set on the Worker", 500);
-    if (!safeEqual(token, env.ADMIN_TOKEN)) return err("Wrong password", 401);
-    return json({ ok: true }, 200, { "set-cookie": sessionCookie(token) });
+    const result = await checkPassword(request, env, token);
+    if (result === "locked") return err("Too many wrong passwords — try again in 15 minutes", 429);
+    if (result !== "ok") return err("Wrong password", 401);
+    return json({ ok: true }, 200, { "set-cookie": sessionCookie(await sessionValue(env)) });
   }
   if (p === "/api/logout" && m === "POST") return json({ ok: true }, 200, { "set-cookie": sessionCookie("", 0) });
   if (p === "/api/me") return json({ authed });
@@ -153,6 +164,31 @@ async function api(request, env, ctx, url) {
     return json({ ok: true });
   }
 
+  // ---- benchmarks ----
+  if (p === "/api/benchmarks" && m === "GET") {
+    const { results } = await env.DB.prepare("SELECT id, date, test, value FROM benchmarks ORDER BY date, id").all();
+    return json({ tests: BENCHMARKS, results: results.map((x) => ({ ...x, day_number: dayNumber(env, x.date) })) });
+  }
+  if (p === "/api/benchmarks" && m === "POST") {
+    const r = need(); if (r) return r;
+    const b = await request.json().catch(() => null);
+    if (!b) return err("JSON body required");
+    if (!BENCHMARKS[b.test]) return err("Unknown test");
+    const date = b.date || localDate(env);
+    if (!isDate(date)) return err("date must be YYYY-MM-DD");
+    const value = numOrNull(b.value);
+    if (value === null || value <= 0 || value > 100000) return err("value must be a positive number");
+    const row = await env.DB.prepare("INSERT INTO benchmarks (date, test, value) VALUES (?, ?, ?) RETURNING id, date, test, value")
+      .bind(date, b.test, value).first();
+    return json(row);
+  }
+  const bm = p.match(/^\/api\/benchmarks\/(\d+)$/);
+  if (bm && m === "DELETE") {
+    const r = need(); if (r) return r;
+    await env.DB.prepare("DELETE FROM benchmarks WHERE id = ?").bind(+bm[1]).run();
+    return json({ ok: true });
+  }
+
   // ---- integrations ----
   if (p === "/api/sync" && m === "POST") {
     const r = need(); if (r) return r;
@@ -172,7 +208,7 @@ async function api(request, env, ctx, url) {
     const r = need(); if (r) return r;
     const q = (t) => env.DB.prepare(`SELECT * FROM ${t}`).all().then((x) => x.results);
     return json({ exported_at: new Date().toISOString(), days: await q("days"), posts: await q("posts"),
-      follower_snapshots: await q("follower_snapshots"), photos: await q("photos") }, 200,
+      follower_snapshots: await q("follower_snapshots"), photos: await q("photos"), benchmarks: await q("benchmarks") }, 200,
       { "content-disposition": `attachment; filename="sweat100-${localDate(env)}.json"` });
   }
 
@@ -227,7 +263,7 @@ async function allDays(env, authed) {
     days.push({
       ...base, date, day_number: n,
       status: row.done ? "done" : n === todayN ? "today" : n < todayN ? "missed" : "future",
-      reel, content, photos: photos[date] || 0,
+      reel, full: !!row.done && reel, content, photos: photos[date] || 0,
     });
   }
   const { results: followers } = await env.DB.prepare(
@@ -274,6 +310,7 @@ async function summary(env, authed) {
     today_minutes: todayRow?.minutes ?? todayRow?.health_workout_minutes ?? null,
     streak,
     days_done: done.length,
+    full_days: done.filter((x) => x.full).length,
     days_missed: past.filter((x) => x.status === "missed").length,
     reels: past.filter((x) => x.reel).length,
     total_minutes: done.reduce((s, x) => s + (x.minutes || x.health_workout_minutes || 0), 0),
@@ -301,7 +338,7 @@ async function servePhoto(request, env, id) {
   if (!/^[0-9a-f-]{36}$/.test(id)) return new Response("Not found", { status: 404 });
   const row = await env.DB.prepare("SELECT * FROM photos WHERE id=?").bind(id).first();
   if (!row) return new Response("Not found", { status: 404 });
-  if (!row.is_public && !isAuthed(request, env)) return new Response("Private photo", { status: 403 });
+  if (!row.is_public && !(await isAuthed(request, env))) return new Response("Private photo", { status: 403 });
   const obj = await env.PHOTOS.get(row.r2_key);
   if (!obj) return new Response("Missing file", { status: 404 });
   return new Response(obj.body, {
@@ -311,4 +348,14 @@ async function servePhoto(request, env, id) {
       etag: obj.httpEtag,
     },
   });
+}
+
+// Link previews (WhatsApp, iMessage, Instagram bio…) need an absolute og:image URL, so it is filled in per request
+async function dashboardPage(request, env, url) {
+  const res = await env.ASSETS.fetch(request);
+  if (!res.ok || !(res.headers.get("content-type") || "").includes("text/html")) return res;
+  return new HTMLRewriter()
+    .on('meta[property="og:image"]', { element: (el) => el.setAttribute("content", `${url.origin}/og.png`) })
+    .on('meta[property="og:url"]', { element: (el) => el.setAttribute("content", `${url.origin}/`) })
+    .transform(res);
 }
