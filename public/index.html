@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>100 Days of Sweat</title>
+<meta name="description" content="Alessandro's 100 Days of Sweat challenge — one workout and one Reel every day.">
+<meta name="theme-color" content="#0d0e11">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,600..900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<div class="wrap">
+  <div class="row">
+    <div class="eyebrow">100 Days of Sweat · Madrid</div>
+    <div class="spacer"></div>
+    <a href="/log.html" class="small muted" id="logLink">Log</a>
+  </div>
+
+  <section class="hero">
+    <div class="daynum" id="daynum">Day –<span> / 100</span></div>
+    <div class="progress"><i id="bar" style="width:0"></i></div>
+    <div class="row">
+      <span class="today-pill" id="todayPill"><span class="dot"></span> Loading…</span>
+      <span class="today-pill" id="reelPill"><span class="dot"></span> Reel</span>
+    </div>
+  </section>
+
+  <div class="kpis" id="kpis"></div>
+
+  <h2>The sheet</h2>
+  <div class="grid100" id="grid"></div>
+  <div class="legend">
+    <span><i style="background:var(--heat)"></i>Done</span>
+    <span><i style="border:2px solid var(--text)"></i>Today</span>
+    <span><i style="background:var(--surface);border:1px solid var(--line)"></i>Missed</span>
+    <span><i style="background:var(--reel);border-radius:50%"></i>Reel posted</span>
+  </div>
+
+  <h2>Training</h2>
+  <div class="cards">
+    <div class="card"><h3>Minutes per day</h3><div class="chart"><canvas id="cMinutes"></canvas></div></div>
+    <div class="card" id="moodCard" hidden><h3>Mood &amp; energy</h3><div class="chart"><canvas id="cMood"></canvas></div></div>
+    <div class="card" id="bodyCard" hidden><h3>Weight &amp; resting heart rate</h3><div class="chart"><canvas id="cBody"></canvas></div></div>
+  </div>
+
+  <h2>Content</h2>
+  <div class="cards">
+    <div class="card"><h3>Views per day</h3><div class="chart"><canvas id="cViews"></canvas></div></div>
+    <div class="card"><h3>Followers</h3><div class="chart"><canvas id="cFollowers"></canvas></div></div>
+  </div>
+
+  <div id="photoSection" hidden>
+    <h2>Photos</h2>
+    <div class="photos" id="photos"></div>
+  </div>
+
+  <footer>
+    <span>Started 17 Oct 2026 · one workout and one Reel a day</span>
+  </footer>
+</div>
+
+<div class="sheet-bg" id="sheetBg">
+  <div class="sheet" id="sheet"></div>
+</div>
+
+<script src="/vendor/chart.umd.min.js"></script>
+<script>
+const $ = (s) => document.querySelector(s);
+const fmt = (n) => n == null ? "–" : n >= 10000 ? (n / 1000).toFixed(n >= 100000 ? 0 : 1) + "k" : n.toLocaleString("en");
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const MOOD = ["", "😞", "😕", "😐", "🙂", "😄"];
+let DATA, SUM, PHOTOS = [];
+
+async function load() {
+  const [d, s, p] = await Promise.all([
+    fetch("/api/days").then((r) => r.json()),
+    fetch("/api/summary").then((r) => r.json()),
+    fetch("/api/photos").then((r) => r.json()).catch(() => []),
+  ]);
+  DATA = d; SUM = s; PHOTOS = Array.isArray(p) ? p : [];
+  render();
+}
+
+function render() {
+  const s = SUM;
+  $("#daynum").innerHTML = `Day ${s.day}<span> / ${s.total}</span>`;
+  $("#bar").style.width = (s.days_done / s.total * 100).toFixed(1) + "%";
+  const tp = $("#todayPill");
+  tp.className = "today-pill" + (s.done_today ? " ok" : "");
+  tp.innerHTML = s.done_today
+    ? `<span class="dot on"></span> Today: ${esc(s.today_activity || "done")}${s.today_minutes ? " · " + s.today_minutes + " min" : ""}`
+    : `<span class="dot"></span> Today's workout still open`;
+  $("#reelPill").innerHTML = `<span class="dot ${s.reel_today ? "reel" : ""}"></span> ${s.reel_today ? "Reel posted" : "Reel not posted yet"}`;
+  if (DATA.authed) $("#logLink").textContent = "Log today →";
+
+  const ig = s.content.instagram, tt = s.content.tiktok;
+  const followersNow = (ig?.followers || 0) + (tt?.followers || 0);
+  const followersStart = (ig?.followers_start || 0) + (tt?.followers_start || 0);
+  const kpis = [
+    ["Streak", s.streak + (s.streak === 1 ? " day" : " days")],
+    ["Days done", `${s.days_done}` + (s.days_missed ? ` <span class="muted small">/ ${s.days_missed} missed</span>` : "")],
+    ["Minutes", fmt(s.total_minutes)],
+    ["Reels", s.reels],
+    ["Views", fmt(s.total_views)],
+  ];
+  if (followersNow) kpis.push(["Followers", fmt(followersNow) + (followersNow > followersStart && followersStart ? `<span class="delta">+${fmt(followersNow - followersStart)}</span>` : "")]);
+  if (s.avg_mood) kpis.push(["Avg mood", `${s.avg_mood} ${MOOD[Math.round(s.avg_mood)]}`]);
+  if (s.weight_latest) kpis.push(["Weight", `${s.weight_latest} kg` + (s.weight_start && s.weight_start !== s.weight_latest ? ` <span class="muted small">${(s.weight_latest - s.weight_start > 0 ? "+" : "")}${(s.weight_latest - s.weight_start).toFixed(1)}</span>` : "")]);
+  $("#kpis").innerHTML = kpis.map(([k, v]) => `<div class="kpi"><b>${v}</b><small>${k}</small></div>`).join("");
+
+  $("#grid").innerHTML = DATA.days.map((d) =>
+    `<button class="cell ${d.status}${d.day_number === DATA.today_n ? " is-today" : ""}" data-n="${d.day_number}" ${d.status === "future" ? "disabled" : ""} aria-label="Day ${d.day_number}, ${d.status}">${d.day_number}${d.reel ? '<span class="r"></span>' : ""}${d.photos ? '<span class="ph"></span>' : ""}</button>`
+  ).join("");
+
+  charts();
+
+  if (PHOTOS.length) {
+    $("#photoSection").hidden = false;
+    $("#photos").innerHTML = PHOTOS.slice(0, 60).map((p) => {
+      const n = DATA.days.find((d) => d.date === p.date)?.day_number;
+      return `<figure><img loading="lazy" src="${p.url}" alt="${esc(p.caption || "Day " + n)}"><figcaption>Day ${n ?? "?"}</figcaption></figure>`;
+    }).join("");
+  }
+}
+
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const charts_ = {};
+function chart(id, cfg) {
+  charts_[id]?.destroy();
+  charts_[id] = new Chart(document.getElementById(id), cfg);
+}
+function emptyNote(id, has, msg) {
+  const box = document.getElementById(id).parentElement;
+  box.querySelector(".empty")?.remove();
+  document.getElementById(id).style.display = has ? "" : "none";
+  if (!has) box.insertAdjacentHTML("beforeend", `<div class="empty">${msg}</div>`);
+}
+function charts() {
+  if (!window.Chart) return;
+  Chart.defaults.color = css("--muted");
+  Chart.defaults.font.family = "Inter, system-ui, sans-serif";
+  Chart.defaults.borderColor = css("--line");
+  const past = DATA.days.filter((d) => d.day_number <= Math.max(DATA.today_n, 1));
+  const labels = past.map((d) => d.day_number);
+  const base = (extra = {}) => ({
+    responsive: true, maintainAspectRatio: false, interaction: { mode: "index", intersect: false },
+    plugins: { legend: { display: false }, tooltip: { callbacks: { title: (i) => "Day " + i[0].label } } },
+    scales: { x: { grid: { display: false }, ticks: { maxTicksLimit: 10 } }, y: { beginAtZero: true, grid: { color: css("--line") } } },
+    ...extra,
+  });
+
+  chart("cMinutes", { type: "bar", data: { labels, datasets: [{ data: past.map((d) => d.minutes ?? d.health_workout_minutes ?? 0), backgroundColor: css("--heat"), borderRadius: 4, maxBarThickness: 18 }] }, options: base() });
+
+  const v = (p) => past.map((d) => d.content?.[p]?.views || 0);
+  const anyViews = past.some((d) => Object.keys(d.content || {}).length);
+  emptyNote("cViews", anyViews, "Views appear here once Instagram or TikTok is connected.");
+  emptyNote("cFollowers", (DATA.followers || []).length, "Follower growth starts with the first sync.");
+  chart("cViews", { type: "bar", data: { labels, datasets: [
+    { label: "Instagram", data: v("instagram"), backgroundColor: css("--ig"), borderRadius: 3, maxBarThickness: 18, stack: "v" },
+    { label: "TikTok", data: v("tiktok"), backgroundColor: css("--tt"), borderRadius: 3, maxBarThickness: 18, stack: "v" },
+  ] }, options: base({ plugins: { legend: { display: true, position: "bottom", labels: { boxWidth: 10 } } }, scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, beginAtZero: true } } }) });
+
+  const f = DATA.followers || [];
+  const dates = [...new Set(f.map((x) => x.date))];
+  const fs = (p, color) => ({ label: p === "instagram" ? "Instagram" : "TikTok", borderColor: color, backgroundColor: color, tension: .3, pointRadius: 2, spanGaps: true,
+    data: dates.map((dt) => f.find((x) => x.date === dt && x.platform === p)?.followers ?? null) });
+  chart("cFollowers", { type: "line", data: { labels: dates.map((dt) => DATA.days.find((d) => d.date === dt)?.day_number ?? dt), datasets: [fs("instagram", css("--ig")), fs("tiktok", css("--tt"))] },
+    options: base({ plugins: { legend: { display: true, position: "bottom", labels: { boxWidth: 10 } } }, scales: { x: { grid: { display: false } }, y: { beginAtZero: false } } }) });
+
+  if (DATA.authed) {
+    $("#moodCard").hidden = false; $("#bodyCard").hidden = false;
+    chart("cMood", { type: "line", data: { labels, datasets: [
+      { label: "Mood", data: past.map((d) => d.mood), borderColor: css("--heat"), backgroundColor: css("--heat"), tension: .3, spanGaps: true },
+      { label: "Energy", data: past.map((d) => d.energy), borderColor: css("--reel"), backgroundColor: css("--reel"), tension: .3, spanGaps: true },
+    ] }, options: base({ plugins: { legend: { display: true, position: "bottom", labels: { boxWidth: 10 } } }, scales: { x: { grid: { display: false } }, y: { min: 1, max: 5, ticks: { stepSize: 1 } } } }) });
+    chart("cBody", { type: "line", data: { labels, datasets: [
+      { label: "Weight (kg)", data: past.map((d) => d.weight_kg), borderColor: css("--text"), backgroundColor: css("--text"), tension: .3, spanGaps: true, yAxisID: "y" },
+      { label: "Resting HR", data: past.map((d) => d.resting_hr), borderColor: css("--warn"), backgroundColor: css("--warn"), tension: .3, spanGaps: true, yAxisID: "y1" },
+    ] }, options: base({ plugins: { legend: { display: true, position: "bottom", labels: { boxWidth: 10 } } }, scales: { x: { grid: { display: false } }, y: { position: "left" }, y1: { position: "right", grid: { display: false } } } }) });
+  }
+}
+
+$("#grid").addEventListener("click", (e) => {
+  const c = e.target.closest(".cell"); if (!c || c.disabled) return;
+  const d = DATA.days[c.dataset.n - 1];
+  const ph = PHOTOS.filter((p) => p.date === d.date);
+  const dateStr = new Date(d.date + "T12:00:00").toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
+  const rows = [
+    ["Workout", d.activity ? esc(d.activity) : d.status === "missed" ? "Missed" : "—"],
+    ["Minutes", d.minutes ?? d.health_workout_minutes ?? "—"],
+    d.steps ? ["Steps", fmt(d.steps)] : null,
+    d.mood ? ["Mood", MOOD[d.mood]] : null,
+    d.energy ? ["Energy", d.energy + " / 5"] : null,
+    d.weight_kg ? ["Weight", d.weight_kg + " kg"] : null,
+    d.resting_hr ? ["Resting HR", d.resting_hr + " bpm"] : null,
+    ["Reel", d.reel ? (d.reel_url ? `<a href="${esc(d.reel_url)}" target="_blank" rel="noopener">Watch</a>` : "Posted") : "—"],
+    ...Object.entries(d.content || {}).map(([p, c]) => [p === "tiktok" ? "TikTok" : "Instagram", `${c.posts} post${c.posts > 1 ? "s" : ""} · ${fmt(c.views)} views`]),
+    d.notes ? ["Notes", esc(d.notes)] : null,
+  ].filter(Boolean);
+  $("#sheet").innerHTML = `
+    <div class="row"><div><div class="eyebrow">Day ${d.day_number}</div><h3 style="font-size:24px;margin-top:4px">${dateStr}</h3></div><div class="spacer"></div>
+    <button class="btn ghost" onclick="closeSheet()">Close</button></div>
+    <dl class="kv">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>
+    ${ph.length ? `<div class="photos">${ph.map((p) => `<figure><img src="${p.url}" alt="${esc(p.caption || "")}"></figure>`).join("")}</div>` : ""}
+    ${DATA.authed ? `<p><a class="btn block" style="display:block;text-align:center;text-decoration:none" href="/log.html?date=${d.date}">Edit this day</a></p>` : ""}`;
+  $("#sheetBg").classList.add("open");
+});
+function closeSheet() { $("#sheetBg").classList.remove("open"); }
+$("#sheetBg").addEventListener("click", (e) => { if (e.target.id === "sheetBg") closeSheet(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeSheet(); });
+
+load().catch((e) => { $("#todayPill").textContent = "Could not load data"; console.error(e); });
+setInterval(() => document.visibilityState === "visible" && load(), 5 * 60 * 1000);
+</script>
+</body>
+</html>

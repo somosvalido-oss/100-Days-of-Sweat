@@ -1,0 +1,30 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "sweat100",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-01",
+  "assets": { "directory": "./public", "binding": "ASSETS" },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "sweat100",
+      "database_id": "f171b6a7-1f21-4991-aa40-55316404b78c"
+    }
+  ],
+  "r2_buckets": [
+    { "binding": "PHOTOS", "bucket_name": "sweat100-photos" }
+  ],
+  // Sync Instagram + TikTok every 3 hours
+  "triggers": { "crons": ["0 */3 * * *"] },
+  "vars": {
+    "START_DATE": "2026-10-17",
+    "TOTAL_DAYS": "100",
+    "TZ": "Europe/Madrid",
+    "IG_API_VERSION": "v23.0"
+  },
+  "observability": { "enabled": true }
+  // Secrets (set with `npx wrangler secret put NAME`):
+  // ADMIN_TOKEN            - your password for logging entries
+  // IG_APP_ID, IG_APP_SECRET              - Instagram (optional)
+  // TIKTOK_CLIENT_KEY, TIKTOK_CLIENT_SECRET - TikTok (optional)
+}

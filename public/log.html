@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Log · 100 Days of Sweat</title>
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#0d0e11">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,600..900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/app.css">
+<style>.wrap { max-width: 560px; }</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="row">
+    <a href="/" class="small muted">← Dashboard</a>
+    <div class="spacer"></div>
+    <button class="btn ghost small" id="logout" hidden style="padding:6px 10px">Log out</button>
+  </div>
+
+  <!-- Login -->
+  <section id="login" hidden>
+    <h1 style="font-size:34px;margin-top:24px">Log in</h1>
+    <p class="muted">Enter the password you set as <code>ADMIN_TOKEN</code>. You stay logged in on this device.</p>
+    <form id="loginForm">
+      <label for="pw">Password</label>
+      <input type="password" id="pw" autocomplete="current-password" required>
+      <p><button class="btn block">Log in</button></p>
+    </form>
+  </section>
+
+  <!-- Logger -->
+  <section id="app" hidden>
+    <div class="eyebrow" style="margin-top:18px" id="dayLabel">Day –</div>
+    <div class="row" style="margin-top:6px">
+      <input type="date" id="date" style="max-width:200px">
+      <button class="btn ghost" id="todayBtn" type="button" style="padding:11px 14px">Today</button>
+    </div>
+    <p class="small muted" id="healthNote" hidden></p>
+
+    <form id="dayForm" autocomplete="off">
+      <label>Workout</label>
+      <div class="chips" id="actChips"></div>
+      <input type="text" id="activity" placeholder="Or type it: e.g. Fit Boxing + core" style="margin-top:8px">
+
+      <div class="grid2">
+        <div><label for="minutes">Minutes</label><input type="number" id="minutes" inputmode="numeric" min="0" max="600" placeholder="45"></div>
+        <div><label>Quick</label><div class="chips" id="minChips"></div></div>
+      </div>
+
+      <label>Intensity</label>
+      <div class="seg" data-field="intensity"></div>
+
+      <label>Mood</label>
+      <div class="seg" data-field="mood"></div>
+
+      <label>Energy</label>
+      <div class="seg" data-field="energy"></div>
+
+      <div class="grid2">
+        <div><label for="weight_kg">Weight (kg)</label><input type="text" id="weight_kg" inputmode="decimal" placeholder="optional"></div>
+        <div><label for="resting_hr">Resting HR</label><input type="number" id="resting_hr" inputmode="numeric" placeholder="optional"></div>
+      </div>
+
+      <label class="toggle"><input type="checkbox" id="reel_done"> Reel / TikTok posted today</label>
+      <input type="url" id="reel_url" placeholder="Link to the Reel (optional — synced automatically once connected)">
+
+      <label for="notes">Notes (private)</label>
+      <textarea id="notes" placeholder="How did it feel? Anything to remember?"></textarea>
+
+      <p><button class="btn block" id="saveBtn">Save day</button></p>
+    </form>
+
+    <h2>Photos for this day</h2>
+    <form id="photoForm">
+      <input type="file" id="files" accept="image/*" multiple hidden>
+      <div class="row">
+        <button type="button" class="btn ghost" id="pickBtn">＋ Add photos</button>
+        <label class="toggle" style="margin:0"><input type="checkbox" id="photoPublic"> Show on public dashboard</label>
+      </div>
+      <input type="text" id="photoCaption" placeholder="Caption (optional)" style="margin-top:10px">
+      <p class="small muted" id="uploadStatus"></p>
+    </form>
+    <div class="thumbs" id="thumbs"></div>
+
+    <h2>Connected accounts</h2>
+    <div class="card" id="conn"><div class="empty">Loading…</div></div>
+    <p class="row">
+      <button class="btn ghost" id="syncBtn" type="button">Sync now</button>
+      <a class="btn ghost" href="/api/export" style="text-decoration:none">Download backup (JSON)</a>
+    </p>
+    <details class="small muted" style="margin-top:8px"><summary>Recent sync log</summary><div id="logs"></div></details>
+  </section>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const ACTIVITIES = ["Football", "Run", "Fit Boxing", "Dance", "Gym", "HIIT", "Padel", "Cycling", "Swim", "Yoga", "Hike", "Walk"];
+const SEG = { intensity: ["1", "2", "3", "4", "5"], mood: ["😞", "😕", "😐", "🙂", "😄"], energy: ["🪫", "▁", "▃", "▅", "⚡"] };
+const state = { intensity: null, mood: null, energy: null };
+let DAYS = null;
+
+function toast(msg) { const t = $("#toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 2600); }
+async function api(path, opts = {}) {
+  const r = await fetch(path, { credentials: "same-origin", ...opts });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+const todayMadrid = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Madrid" }).format(new Date());
+
+// ---- UI building ----
+$("#actChips").innerHTML = ACTIVITIES.map((a) => `<button type="button" class="chip" data-a="${a}">${a}</button>`).join("");
+$("#minChips").innerHTML = [30, 45, 60, 90].map((m) => `<button type="button" class="chip" data-m="${m}">${m}</button>`).join("");
+document.querySelectorAll(".seg").forEach((el) => {
+  const f = el.dataset.field;
+  el.innerHTML = SEG[f].map((lbl, i) => `<button type="button" data-v="${i + 1}" aria-label="${f} ${i + 1}">${lbl}</button>`).join("");
+  el.addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    const v = +b.dataset.v;
+    state[f] = state[f] === v ? null : v;
+    paintSeg();
+  });
+});
+function paintSeg() {
+  document.querySelectorAll(".seg").forEach((el) =>
+    el.querySelectorAll("button").forEach((b) => b.classList.toggle("on", +b.dataset.v === state[el.dataset.field])));
+}
+function paintChips() {
+  const val = $("#activity").value.trim().toLowerCase();
+  document.querySelectorAll("#actChips .chip").forEach((c) => c.classList.toggle("on", val.split(/\s*\+\s*|,\s*/).includes(c.dataset.a.toLowerCase())));
+  document.querySelectorAll("#minChips .chip").forEach((c) => c.classList.toggle("on", c.dataset.m === $("#minutes").value));
+}
+$("#actChips").addEventListener("click", (e) => {
+  const c = e.target.closest(".chip"); if (!c) return;
+  const parts = $("#activity").value.split(/\s*\+\s*/).map((s) => s.trim()).filter(Boolean);
+  const i = parts.findIndex((p) => p.toLowerCase() === c.dataset.a.toLowerCase());
+  if (i >= 0) parts.splice(i, 1); else parts.push(c.dataset.a);
+  $("#activity").value = parts.join(" + ");
+  paintChips();
+});
+$("#minChips").addEventListener("click", (e) => { const c = e.target.closest(".chip"); if (!c) return; $("#minutes").value = c.dataset.m; paintChips(); });
+$("#activity").addEventListener("input", paintChips);
+$("#minutes").addEventListener("input", paintChips);
+
+// ---- Day loading ----
+function dayFor(date) { return DAYS?.days.find((d) => d.date === date); }
+function fillForm(date) {
+  const d = dayFor(date) || {};
+  $("#dayLabel").textContent = d.day_number ? `Day ${d.day_number} of ${DAYS.total}` : "Outside the challenge";
+  $("#activity").value = d.activity || "";
+  $("#minutes").value = d.minutes ?? "";
+  $("#weight_kg").value = d.weight_kg ?? "";
+  $("#resting_hr").value = d.resting_hr ?? "";
+  $("#reel_done").checked = !!d.reel_done || Object.keys(d.content || {}).length > 0;
+  $("#reel_url").value = d.reel_url || "";
+  $("#notes").value = d.notes || "";
+  state.intensity = d.intensity ?? null; state.mood = d.mood ?? null; state.energy = d.energy ?? null;
+  const hn = $("#healthNote");
+  const bits = [];
+  if (d.steps) bits.push(`${d.steps.toLocaleString("en")} steps`);
+  if (d.health_workout_minutes) bits.push(`${d.health_workout_minutes} workout min`);
+  if (d.active_kcal) bits.push(`${d.active_kcal} kcal`);
+  hn.hidden = !bits.length; hn.textContent = "From Apple Health: " + bits.join(" · ");
+  paintSeg(); paintChips(); loadPhotos();
+}
+async function loadDays() { DAYS = await api("/api/days"); }
+
+$("#date").addEventListener("change", () => { history.replaceState(null, "", "?date=" + $("#date").value); fillForm($("#date").value); });
+$("#todayBtn").addEventListener("click", () => { $("#date").value = todayMadrid(); $("#date").dispatchEvent(new Event("change")); });
+
+$("#dayForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const btn = $("#saveBtn"); btn.disabled = true;
+  try {
+    await api("/api/days", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
+      date: $("#date").value, activity: $("#activity").value, minutes: $("#minutes").value,
+      intensity: state.intensity, mood: state.mood, energy: state.energy,
+      weight_kg: $("#weight_kg").value, resting_hr: $("#resting_hr").value,
+      reel_done: $("#reel_done").checked, reel_url: $("#reel_url").value, notes: $("#notes").value,
+    }) });
+    await loadDays(); fillForm($("#date").value);
+    toast("Saved 💪");
+  } catch (err) { toast("Error: " + err.message); }
+  btn.disabled = false;
+});
+
+// ---- Photos ----
+async function loadPhotos() {
+  const list = await api("/api/photos?date=" + $("#date").value).catch(() => []);
+  $("#thumbs").innerHTML = list.map((p) => `<figure><img src="${p.url}" alt="${esc(p.caption || "")}">
+    <div class="acts"><button data-pub="${p.id}" data-v="${p.is_public ? 0 : 1}">${p.is_public ? "Public" : "Private"}</button><button data-del="${p.id}">Delete</button></div></figure>`).join("");
+}
+$("#thumbs").addEventListener("click", async (e) => {
+  const del = e.target.dataset.del, pub = e.target.dataset.pub;
+  try {
+    if (del && confirm("Delete this photo?")) { await api("/api/photos/" + del, { method: "DELETE" }); toast("Deleted"); }
+    if (pub) { await api("/api/photos/" + pub, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ public: e.target.dataset.v === "1" }) }); }
+    loadPhotos();
+  } catch (err) { toast("Error: " + err.message); }
+});
+$("#pickBtn").addEventListener("click", () => $("#files").click());
+
+// Resize on the phone before upload (also turns iPhone HEIC into JPEG)
+async function shrink(file, max = 2048) {
+  try {
+    const bmp = await createImageBitmap(file);
+    const k = Math.min(1, max / Math.max(bmp.width, bmp.height));
+    const c = document.createElement("canvas");
+    c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+    c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+    const blob = await new Promise((res) => c.toBlob(res, "image/jpeg", 0.85));
+    return blob ? new File([blob], "photo.jpg", { type: "image/jpeg" }) : file;
+  } catch { return file; }
+}
+$("#files").addEventListener("change", async () => {
+  const files = [...$("#files").files]; if (!files.length) return;
+  const st = $("#uploadStatus");
+  let ok = 0;
+  for (const [i, f] of files.entries()) {
+    st.textContent = `Uploading ${i + 1} of ${files.length}…`;
+    const fd = new FormData();
+    fd.append("file", await shrink(f));
+    fd.append("date", $("#date").value);
+    fd.append("caption", $("#photoCaption").value);
+    fd.append("public", $("#photoPublic").checked ? "1" : "0");
+    try { await api("/api/photos", { method: "POST", body: fd }); ok++; } catch (err) { toast("Upload failed: " + err.message); }
+  }
+  st.textContent = ok ? `${ok} photo${ok > 1 ? "s" : ""} uploaded` : "";
+  $("#files").value = ""; $("#photoCaption").value = "";
+  loadPhotos();
+});
+
+// ---- Connections ----
+async function loadStatus() {
+  try {
+    const s = await api("/api/status");
+    const rows = [["instagram", "Instagram"], ["tiktok", "TikTok"]].map(([k, name]) => {
+      const c = s.connected[k], conf = s.configured[k];
+      const badge = c ? `<span class="badge ok">Connected</span>` : conf ? `<span class="badge">Not connected</span>` : `<span class="badge">App keys missing</span>`;
+      const action = conf ? `<a class="btn ghost" style="padding:8px 12px;text-decoration:none" href="/connect/${k}">${c ? "Reconnect" : "Connect"}</a>` : `<span class="small muted">see README</span>`;
+      return `<div class="status-row"><b>${name}</b>${badge}<div class="spacer"></div>${action}</div>`;
+    });
+    rows.push(`<div class="status-row"><b>Apple Health</b><span class="badge">via iOS Shortcut</span><div class="spacer"></div><span class="small muted">see README</span></div>`);
+    $("#conn").innerHTML = rows.join("");
+    $("#logs").innerHTML = s.logs.map((l) => `<div>${esc(l.at)} · ${esc(l.platform)} · ${l.ok ? "✓" : "✗"} ${esc(l.message)}</div>`).join("") || "No syncs yet";
+  } catch (e) { $("#conn").innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
+}
+$("#syncBtn").addEventListener("click", async () => {
+  $("#syncBtn").disabled = true;
+  try { const r = await api("/api/sync", { method: "POST" }); toast(Object.entries(r).map(([k, v]) => `${k}: ${v}`).join(" · ")); await loadDays(); fillForm($("#date").value); loadStatus(); }
+  catch (e) { toast("Error: " + e.message); }
+  $("#syncBtn").disabled = false;
+});
+
+// ---- Auth ----
+$("#loginForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  try { await api("/api/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: $("#pw").value }) }); start(); }
+  catch (err) { toast(err.message); }
+});
+$("#logout").addEventListener("click", async () => { await api("/api/logout", { method: "POST" }); location.reload(); });
+
+async function start() {
+  const me = await api("/api/me");
+  $("#login").hidden = me.authed; $("#app").hidden = !me.authed; $("#logout").hidden = !me.authed;
+  if (!me.authed) return;
+  const q = new URLSearchParams(location.search);
+  if (q.get("connected")) toast(`${q.get("connected")} connected ✓`);
+  if (q.get("oauth_error")) toast("Connection failed: " + q.get("oauth_error"));
+  $("#date").value = /^\d{4}-\d{2}-\d{2}$/.test(q.get("date") || "") ? q.get("date") : todayMadrid();
+  await loadDays();
+  fillForm($("#date").value);
+  loadStatus();
+}
+start().catch((e) => toast(e.message));
+</script>
+</body>
+</html>
