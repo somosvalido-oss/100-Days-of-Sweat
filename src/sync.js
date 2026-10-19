@@ -1,5 +1,6 @@
-// Instagram + TikTok: OAuth connection and stats sync
-import { localDate } from "./util.js";
+// Instagram, TikTok + Google Health (Fitbit): OAuth connection and sync
+import { localDate, dayNumber, dateForDay } from "./util.js";
+import { applyHealth } from "./health.js";
 
 const now = () => Math.floor(Date.now() / 1000);
 
@@ -52,6 +53,18 @@ export async function startOAuth(platform, env, origin) {
     u.searchParams.set("state", state);
     return u.toString();
   }
+  if (platform === "google_health") {
+    if (!env.GOOGLE_CLIENT_ID) throw new Error("GOOGLE_CLIENT_ID secret is not set");
+    const u = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+    u.searchParams.set("client_id", env.GOOGLE_CLIENT_ID);
+    u.searchParams.set("redirect_uri", redirect);
+    u.searchParams.set("response_type", "code");
+    u.searchParams.set("scope", GOOGLE_SCOPES);
+    u.searchParams.set("access_type", "offline"); // refresh token for the cron
+    u.searchParams.set("prompt", "consent");      // Google only returns a refresh token on consent
+    u.searchParams.set("state", state);
+    return u.toString();
+  }
   throw new Error("Unknown platform");
 }
 
@@ -95,8 +108,28 @@ export async function finishOAuth(platform, env, url) {
       access_token: t.access_token, refresh_token: t.refresh_token,
       user_id: t.open_id, expires_at: now() + (t.expires_in || 86400),
     });
+  } else if (platform === "google_health") {
+    const t = await googleToken(env, { grant_type: "authorization_code", code, redirect_uri: redirect });
+    if (!t.refresh_token) throw new Error("Google sent no refresh token — remove the app at myaccount.google.com/permissions and connect again");
+    await saveToken(env, "google_health", t);
+  } else {
+    throw new Error("Unknown platform");
   }
   await log(env, platform, true, "Connected");
+}
+
+/** Forgets a connection. Google tokens are also revoked so the app loses access on Google's side. */
+export async function disconnect(platform, env) {
+  const tok = await getToken(env, platform);
+  if (!tok) return;
+  if (platform === "google_health") {
+    await fetch("https://oauth2.googleapis.com/revoke", {
+      method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ token: tok.refresh_token || tok.access_token }),
+    }).catch(() => {});
+  }
+  await env.DB.prepare("DELETE FROM oauth_tokens WHERE platform = ?").bind(platform).run();
+  await log(env, platform, true, "Disconnected");
 }
 
 // ---------- Sync ----------
@@ -233,9 +266,108 @@ async function syncTikTok(env) {
   return `${count} videos`;
 }
 
+// ---------- Google Health (Fitbit, Pixel Watch) ----------
+
+const GH = "https://health.googleapis.com/v4/users/me/dataTypes";
+const GOOGLE_SCOPES = [
+  "https://www.googleapis.com/auth/googlehealth.activity_and_fitness.readonly",        // steps, exercise, calories
+  "https://www.googleapis.com/auth/googlehealth.health_metrics_and_measurements.readonly", // resting heart rate
+].join(" ");
+const GH_DAYS = 7; // re-read the last week each run so late watch syncs and edits land
+
+async function googleToken(env, params) {
+  const r = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ client_id: env.GOOGLE_CLIENT_ID, client_secret: env.GOOGLE_CLIENT_SECRET, ...params }),
+  });
+  const t = await r.json();
+  if (!r.ok || !t.access_token) {
+    if (t.error === "invalid_grant") throw new Error("Google access expired or was revoked — reconnect Google Health");
+    throw new Error("Google token error: " + JSON.stringify(t).slice(0, 200));
+  }
+  return { access_token: t.access_token, refresh_token: t.refresh_token, expires_at: now() + (t.expires_in || 3600) };
+}
+
+const ymd = (d) => `${d.year}-${String(d.month).padStart(2, "0")}-${String(d.day).padStart(2, "0")}`;
+const civil = (s) => ({ date: { year: +s.slice(0, 4), month: +s.slice(5, 7), day: +s.slice(8, 10) } });
+
+async function ghFetch(auth, path, body) {
+  const r = await fetch(`${GH}/${path}`, body
+    ? { method: "POST", headers: { ...auth, "content-type": "application/json" }, body: JSON.stringify(body) }
+    : { headers: auth });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(`${path.split("?")[0]}: ${j.error?.message || r.status}`);
+  return j;
+}
+
+async function syncGoogleHealth(env) {
+  let tok = await getToken(env, "google_health");
+  if (!tok) return "not connected";
+  // Access tokens last 1 h; refresh tokens don't expire while the consent screen is "In production"
+  if (!tok.expires_at || tok.expires_at - now() < 300) {
+    await saveToken(env, "google_health", await googleToken(env, { grant_type: "refresh_token", refresh_token: tok.refresh_token }));
+    tok = await getToken(env, "google_health");
+  }
+  const auth = { authorization: `Bearer ${tok.access_token}` };
+
+  // Local dates [from, to) — the last GH_DAYS days, not before the challenge start
+  const today = dayNumber(env, localDate(env));
+  if (today < 1) return "challenge not started";
+  const first = Math.max(1, today - GH_DAYS + 1);
+  const from = dateForDay(env, first), to = dateForDay(env, today + 1);
+  const days = {};
+  const day = (d) => (days[d] ??= {});
+
+  const range = { range: { start: civil(from), end: civil(to) }, windowSizeDays: 1 };
+  for (const p of (await ghFetch(auth, "steps/dataPoints:dailyRollUp", range)).rollupDataPoints || []) {
+    if (p.steps?.countSum != null) day(ymd(p.civilStartTime.date)).steps = Number(p.steps.countSum);
+  }
+  for (const p of (await ghFetch(auth, "active-energy-burned/dataPoints:dailyRollUp", range)).rollupDataPoints || []) {
+    if (p.activeEnergyBurned?.kcalSum != null) day(ymd(p.civilStartTime.date)).active_kcal = p.activeEnergyBurned.kcalSum;
+  }
+
+  const rhr = await ghFetch(auth, "daily-resting-heart-rate/dataPoints?pageSize=100&filter=" +
+    encodeURIComponent(`daily_resting_heart_rate.date >= "${from}" AND daily_resting_heart_rate.date < "${to}"`));
+  for (const p of rhr.dataPoints || []) {
+    const v = p.dailyRestingHeartRate;
+    if (v?.date && v.beatsPerMinute) day(ymd(v.date)).resting_hr = Number(v.beatsPerMinute);
+  }
+
+  // Exercise sessions (max 25 per page). Auto-detected sessions (e.g. SmartTrack walks) are skipped so
+  // that walking around doesn't tick the day — only workouts started on the watch or logged in the app count.
+  let pageToken = "", pages = 0, sessions = 0;
+  const filter = encodeURIComponent(`exercise.interval.civil_start_time >= "${from}" AND exercise.interval.civil_start_time < "${to}"`);
+  do {
+    const j = await ghFetch(auth, `exercise/dataPoints?pageSize=25&filter=${filter}${pageToken ? "&pageToken=" + encodeURIComponent(pageToken) : ""}`);
+    for (const p of j.dataPoints || []) {
+      const e = p.exercise;
+      if (!e?.interval?.civilStartTime) continue;
+      if (["PASSIVELY_MEASURED", "DERIVED"].includes(p.dataSource?.recordingMethod)) continue;
+      const secs = e.activeDuration ? parseFloat(e.activeDuration)
+        : (Date.parse(e.interval.endTime) - Date.parse(e.interval.startTime)) / 1000;
+      const minutes = Math.round(secs / 60);
+      if (!(minutes > 0)) continue;
+      (day(ymd(e.interval.civilStartTime.date)).workouts ??= []).push({ type: e.displayName || e.exerciseType, minutes });
+      sessions++;
+    }
+    pageToken = j.nextPageToken;
+  } while (pageToken && ++pages < 4);
+
+  let n = 0;
+  for (const [date, d] of Object.entries(days)) {
+    const dn = dayNumber(env, date);
+    if (dn < 1) continue;
+    // Oldest first, so the day's first workout names the activity
+    d.workouts?.reverse();
+    await applyHealth(env, date, dn, d);
+    n++;
+  }
+  return `${n} days, ${sessions} workouts`;
+}
+
 export async function syncAll(env) {
   const out = {};
-  for (const [name, fn] of [["instagram", syncInstagram], ["tiktok", syncTikTok]]) {
+  for (const [name, fn] of [["instagram", syncInstagram], ["tiktok", syncTikTok], ["google_health", syncGoogleHealth]]) {
     try {
       out[name] = await fn(env);
       if (out[name] !== "not connected") await log(env, name, true, out[name]);

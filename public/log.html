@@ -105,6 +105,7 @@
       <button class="btn ghost" id="syncBtn" type="button">Sync now</button>
       <a class="btn ghost" href="/api/export" style="text-decoration:none">Download backup (JSON)</a>
     </p>
+    <p class="small muted"><a href="/privacy.html">Privacy policy</a></p>
     <details class="small muted" style="margin-top:8px"><summary>Recent sync log</summary><div id="logs"></div></details>
   </section>
 </div>
@@ -312,17 +313,24 @@ $("#files").addEventListener("change", async () => {
 async function loadStatus() {
   try {
     const s = await api("/api/status");
-    const rows = [["instagram", "Instagram"], ["tiktok", "TikTok"]].map(([k, name]) => {
+    const rows = [["instagram", "Instagram"], ["tiktok", "TikTok"], ["google_health", "Google Health (Fitbit)"]].map(([k, name]) => {
       const c = s.connected[k], conf = s.configured[k];
       const badge = c ? `<span class="badge ok">Connected</span>` : conf ? `<span class="badge">Not connected</span>` : `<span class="badge">App keys missing</span>`;
       const action = conf ? `<a class="btn ghost" style="padding:8px 12px;text-decoration:none" href="/connect/${k}">${c ? "Reconnect" : "Connect"}</a>` : `<span class="small muted">see README</span>`;
-      return `<div class="status-row"><b>${name}</b>${badge}<div class="spacer"></div>${action}</div>`;
+      const off = c ? `<button class="btn ghost" style="padding:8px 12px" type="button" data-disconnect="${k}">Disconnect</button>` : "";
+      return `<div class="status-row"><b>${name}</b>${badge}<div class="spacer"></div>${off}${action}</div>`;
     });
     rows.push(`<div class="status-row"><b>Apple Health</b><span class="badge">via iOS Shortcut</span><div class="spacer"></div><span class="small muted">see README</span></div>`);
     $("#conn").innerHTML = rows.join("");
     $("#logs").innerHTML = s.logs.map((l) => `<div>${esc(l.at)} · ${esc(l.platform)} · ${l.ok ? "✓" : "✗"} ${esc(l.message)}</div>`).join("") || "No syncs yet";
   } catch (e) { $("#conn").innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
 }
+$("#conn").addEventListener("click", async (e) => {
+  const k = e.target.dataset?.disconnect;
+  if (!k || !confirm("Disconnect? Syncing stops; data already saved stays.")) return;
+  try { await api(`/api/disconnect/${k}`, { method: "POST" }); toast("Disconnected"); loadStatus(); }
+  catch (err) { toast("Error: " + err.message); }
+});
 $("#syncBtn").addEventListener("click", async () => {
   $("#syncBtn").disabled = true;
   try { const r = await api("/api/sync", { method: "POST" }); toast(Object.entries(r).map(([k, v]) => `${k}: ${v}`).join(" · ")); await loadDays(); fillForm($("#date").value); loadStatus(); }

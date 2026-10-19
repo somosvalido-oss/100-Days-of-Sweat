@@ -16,7 +16,7 @@
   "r2_buckets": [
     { "binding": "PHOTOS", "bucket_name": "sweat100-photos" }
   ],
-  // Sync Instagram + TikTok every 3 hours
+  // Sync Instagram, TikTok + Google Health every 3 hours
   "triggers": { "crons": ["0 */3 * * *"] },
   "vars": {
     "START_DATE": "2026-10-17",
@@ -29,4 +29,5 @@
   // ADMIN_TOKEN            - your password for logging entries
   // IG_APP_ID, IG_APP_SECRET              - Instagram (optional)
   // TIKTOK_CLIENT_KEY, TIKTOK_CLIENT_SECRET - TikTok (optional)
+  // GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET   - Google Health / Fitbit (optional)
 }
