@@ -6,7 +6,7 @@ Public dashboard + private logging for the challenge (17 Oct 2026 → 24 Jan 202
 - **Log** (`/log.html`) — password protected: workout, minutes, intensity, mood, energy, weight, resting HR, Reel, notes, photos, benchmark tests.
 - **Benchmarks** — 5k run, push-ups, pull-ups, plank, burpees (2 min); best tested on day 1, 50 and 100. Shown publicly with change since the first test.
 - **Private data** — mood, energy, weight, resting HR, notes and private photos only show when you're logged in.
-- **Auto data** — Instagram + TikTok stats every 3 hours; Apple Health (steps, workouts, resting HR, weight) via an iOS Shortcut.
+- **Auto data** — Instagram + TikTok stats every 3 hours; Fitbit / Pixel Watch via the Google Health API every 3 hours; Apple Health (steps, workouts, resting HR, weight) via an iOS Shortcut.
 - **iPhone widget** — `widget/sweat100-widget.js` for the Scriptable app (home screen and lock screen).
 
 Already created in your Cloudflare account: D1 database `sweat100` (tables + Day 1 entry) and R2 bucket `sweat100-photos`.
@@ -45,7 +45,7 @@ The widget shows day X/100, workout and Reel status, streak, and the medium size
 
 ## 3. Apple Health → tracker (iOS Shortcut)
 
-Fitbit's old API switches off on 30 Oct 2026, and its replacement (Google Health API) requires a privacy/security review before it hands out data — not realistic for a personal project. On iPhone the reliable path is Apple Health. **If you haven't bought the tracker yet, pick one that writes workouts to Apple Health** (Apple Watch, Garmin, Oura, Whoop, Amazfit, Polar all do; Fitbit does not).
+Use this if your tracker writes to Apple Health (Apple Watch, Garmin, Oura, Whoop, Amazfit, Polar…). Fitbit doesn't write to Apple Health — for a Fitbit or Pixel Watch use section 6 (Google Health) instead.
 
 Build the shortcut once in the **Shortcuts** app:
 
@@ -81,7 +81,7 @@ npx wrangler secret put IG_APP_SECRET
 ## 5. TikTok (auto views, likes, followers)
 
 1. developers.tiktok.com → **Manage apps → Create app**. Add products **Login Kit** and the scopes `user.info.basic`, `user.info.stats`, `video.list`.
-2. Redirect URI: `https://YOUR-URL/callback/tiktok`. Terms and Privacy URLs: `https://YOUR-URL/privacy.html`.
+2. Redirect URI: `https://YOUR-URL/callback/tiktok`. Terms and Privacy URLs: `https://YOUR-URL/privacy`.
 3. Start in **Sandbox**, add your TikTok account as a target user. If sandbox doesn't return your real videos, submit the app for review (personal-use apps with this privacy page are a common case; it takes a few days).
 4. Then:
 
@@ -93,6 +93,26 @@ npx wrangler secret put TIKTOK_CLIENT_SECRET
 5. `/log.html` → **Connect** TikTok.
 
 After connecting, any post published since the challenge start appears on its day (the Reel dot in the sheet ticks automatically).
+
+## 6. Google Health — Fitbit / Pixel Watch (auto steps, workouts, resting HR)
+
+Fitbit's old Web API shuts down on 30 Oct 2026; this uses its replacement, the Google Health API. For your own account no Google review is needed (unverified apps work for up to 100 users).
+
+1. console.cloud.google.com → create a project → **APIs & Services → Library** → enable **Google Health API**.
+2. **Google Auth Platform → Branding**: app name, support email, home page `https://YOUR-URL/`, privacy policy `https://YOUR-URL/privacy`. **Data Access**: add the scopes `googlehealth.activity_and_fitness.readonly` and `googlehealth.health_metrics_and_measurements.readonly`.
+3. **Audience**: user type External, add your Google account as a test user, then **Publish app** so the status is **In production** — in Testing mode Google expires the refresh token after 7 days. Google shows an "unverified app" warning when you connect; click *Advanced → Go to …*.
+4. **Clients → Create client** → Web application → redirect URI `https://YOUR-URL/callback/google_health`.
+5. In the **Google Health** mobile app, link your Fitbit account (otherwise the API returns no data).
+6. Then:
+
+```bash
+npx wrangler secret put GOOGLE_CLIENT_ID
+npx wrangler secret put GOOGLE_CLIENT_SECRET
+```
+
+7. `/log.html` → **Connect** Google Health (Fitbit).
+
+Every 3 hours the last 7 days are re-read: steps, active calories, resting heart rate and exercise sessions. Steps, calories and workout minutes follow the watch; resting HR, activity and minutes only fill empty fields, so your manual entries win. Workouts the watch detected on its own (SmartTrack, e.g. a walk to the shops) are ignored — only workouts you started on the watch or logged in the Fitbit app tick the day. **Disconnect** on the log page revokes Google's access.
 
 ---
 
@@ -110,7 +130,8 @@ Workers (100k requests/day), D1 (5 GB), R2 (10 GB, no egress fees) and the 3-hou
 | POST | `/api/ingest/health` | ✓ | Apple Health data from the Shortcut |
 | GET / POST | `/api/photos` | GET public, POST ✓ | List / upload photos (`file`, `date`, `caption`, `public`) |
 | PATCH / DELETE | `/api/photos/:id` | ✓ | Toggle public / delete |
-| POST | `/api/sync` | ✓ | Sync Instagram + TikTok now |
+| POST | `/api/sync` | ✓ | Sync Instagram, TikTok + Google Health now |
+| POST | `/api/disconnect/:platform` | ✓ | Forget a connection (Google tokens are revoked) |
 | GET | `/api/status` | ✓ | Connection status + sync log |
 | GET / POST | `/api/benchmarks` | GET public, POST ✓ | List / add a test result (`date`, `test`, `value` — seconds for times, count for reps) |
 | DELETE | `/api/benchmarks/:id` | ✓ | Delete a test result |
@@ -130,7 +151,8 @@ npm run dev      # http://localhost:8787
 
 ```
 src/index.js      routes, days, summary, photos, health ingest
-src/sync.js       Instagram + TikTok OAuth and sync
+src/sync.js       Instagram, TikTok + Google Health OAuth and sync
+src/health.js     writes health data (Shortcut + Google) into days
 src/util.js       helpers (dates in Europe/Madrid, auth)
 public/           dashboard, log page, styles, icons, manifest
 widget/           Scriptable widget for iPhone

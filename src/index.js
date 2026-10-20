@@ -3,7 +3,8 @@ import {
   json, err, localDate, dayNumber, dateForDay, isDate, isAuthed, checkPassword,
   sessionCookie, sessionValue, intOrNull, numOrNull, strOrNull,
 } from "./util.js";
-import { startOAuth, finishOAuth, syncAll } from "./sync.js";
+import { startOAuth, finishOAuth, disconnect, syncAll } from "./sync.js";
+import { applyHealth } from "./health.js";
 
 const DONE_SQL = `(COALESCE(minutes,0) > 0 OR (activity IS NOT NULL AND activity <> '') OR COALESCE(health_workout_minutes,0) > 0)`;
 const PUBLIC_DAY_FIELDS = ["date", "day_number", "activity", "minutes", "intensity", "reel_done", "reel_url", "steps", "health_workout_minutes"];
@@ -94,28 +95,7 @@ async function api(request, env, ctx, url) {
     const date = isDate(b.date) ? b.date : localDate(env);
     const n = dayNumber(env, date);
     if (n < 1) return err("Before challenge start");
-    const workouts = Array.isArray(b.workouts) ? b.workouts.slice(0, 20) : null;
-    const wMin = intOrNull(b.workout_minutes ?? workouts?.reduce((s, w) => s + (Number(w.minutes) || 0), 0), 0, 1440);
-    const firstType = strOrNull(workouts?.[0]?.type, 60) ?? strOrNull(b.workout_type, 60);
-    await env.DB.prepare("INSERT OR IGNORE INTO days (date, day_number) VALUES (?, ?)").bind(date, n).run();
-    await env.DB.prepare(
-      `UPDATE days SET
-         steps = COALESCE(?, steps),
-         active_kcal = COALESCE(?, active_kcal),
-         health_workout_minutes = COALESCE(?, health_workout_minutes),
-         health_workouts = COALESCE(?, health_workouts),
-         resting_hr = COALESCE(resting_hr, ?),
-         weight_kg = COALESCE(weight_kg, ?),
-         activity = CASE WHEN (activity IS NULL OR activity='') AND ? > 0 THEN ? ELSE activity END,
-         minutes = CASE WHEN minutes IS NULL AND ? > 0 THEN ? ELSE minutes END,
-         updated_at = datetime('now')
-       WHERE date = ?`
-    ).bind(
-      intOrNull(b.steps, 0), intOrNull(b.active_kcal, 0), wMin,
-      workouts ? JSON.stringify(workouts) : null,
-      intOrNull(b.resting_hr, 25, 220), numOrNull(b.weight_kg),
-      wMin || 0, firstType || "Workout", wMin || 0, wMin, date
-    ).run();
+    await applyHealth(env, date, n, b);
     return json({ ok: true, date, day: n });
   }
 
@@ -194,12 +174,19 @@ async function api(request, env, ctx, url) {
     const r = need(); if (r) return r;
     return json(await syncAll(env));
   }
+  const dc = p.match(/^\/api\/disconnect\/([a-z_]+)$/);
+  if (dc && m === "POST") {
+    const r = need(); if (r) return r;
+    await disconnect(dc[1], env);
+    return json({ ok: true });
+  }
   if (p === "/api/status" && m === "GET") {
     const r = need(); if (r) return r;
     const { results: tokens } = await env.DB.prepare("SELECT platform, user_id, expires_at, updated_at FROM oauth_tokens").all();
     const { results: logs } = await env.DB.prepare("SELECT * FROM sync_log ORDER BY id DESC LIMIT 15").all();
     return json({
-      configured: { instagram: !!(env.IG_APP_ID && env.IG_APP_SECRET), tiktok: !!(env.TIKTOK_CLIENT_KEY && env.TIKTOK_CLIENT_SECRET) },
+      configured: { instagram: !!(env.IG_APP_ID && env.IG_APP_SECRET), tiktok: !!(env.TIKTOK_CLIENT_KEY && env.TIKTOK_CLIENT_SECRET),
+        google_health: !!(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) },
       connected: Object.fromEntries(tokens.map((t) => [t.platform, t])),
       logs,
     });

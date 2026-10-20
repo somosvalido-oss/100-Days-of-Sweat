@@ -9,7 +9,7 @@ Alessandro's tracker for the Yes Theory "100 Days of Sweat" challenge: one worko
 - Cloudflare Worker (`src/index.js`) serving static assets from `public/` + JSON API
 - D1 database `sweat100` — id `f171b6a7-1f21-4991-aa40-55316404b78c` (tables already created in production from `schema.sql`; Day 1 seeded)
 - R2 bucket `sweat100-photos` for photo uploads
-- Cron every 3 h → `syncAll()` in `src/sync.js` (Instagram API with Instagram Login, TikTok Display API v2)
+- Cron every 3 h → `syncAll()` in `src/sync.js` (Instagram API with Instagram Login, TikTok Display API v2, Google Health API v4)
 - Apple Health arrives via an iOS Shortcut POSTing to `/api/ingest/health`
 - iPhone widget: `widget/sweat100-widget.js` (Scriptable)
 - No build step, no framework. Chart.js is vendored at `public/vendor/chart.umd.min.js`.
@@ -23,7 +23,8 @@ Alessandro's tracker for the Yes Theory "100 Days of Sweat" challenge: one worko
 - Link previews: `public/og.png` (static, 1200×630); the Worker runs first for `/` (`run_worker_first`) to write absolute `og:image`/`og:url` URLs.
 - Mood, energy, weight, resting HR, notes and private photos are hidden from the public API (`PUBLIC_DAY_FIELDS` in `src/index.js`).
 - A day counts as done if it has an activity, minutes > 0, or Apple Health workout minutes > 0. Manual entries win over Health data; Health only fills empty fields.
-- Fitbit: legacy Fitbit Web API shuts down 30 Oct 2026 — don't build on it. Google Health API (`https://health.googleapis.com/v4`) IS feasible for personal use: unverified OAuth client (cap 100 users, review only above that), add own Google account as test user, set the consent screen to In production to avoid 7-day refresh-token expiry in Testing mode, link account in the Google Health mobile app first. Not built yet — next step if Alessandro picks a Fitbit/Pixel Watch. Apple Health Shortcut route already exists.
+- Fitbit: legacy Fitbit Web API shuts down 30 Oct 2026 — don't build on it. Google Health API (`https://health.googleapis.com/v4`) is built (`syncGoogleHealth` in `src/sync.js`, platform `google_health`): unverified OAuth client (cap 100 users), consent screen must be In production (Testing expires refresh tokens after 7 days), account linked in the Google Health mobile app. Read-only scopes `googlehealth.activity_and_fitness.readonly` + `googlehealth.health_metrics_and_measurements.readonly`. Each run re-reads the last 7 days (dailyRollUp for steps / active-energy-burned, list for daily-resting-heart-rate and exercise) and writes through `applyHealth()` in `src/health.js`, shared with the Apple Health ingest. Auto-detected exercises (recordingMethod PASSIVELY_MEASURED / DERIVED, e.g. SmartTrack walks) don't count. API reference: discovery doc at `https://health.googleapis.com/$discovery/rest?version=v4`.
+- Privacy policy at `/privacy` (`public/privacy.html`) includes the Google API Limited Use statement; keep it in sync with the scopes and what's public.
 - Photos resized client-side to 2048 px JPEG before upload (also converts HEIC).
 - Instagram insights fetched for max 25 posts per sync to stay under Workers subrequest limits.
 
@@ -31,7 +32,7 @@ Alessandro's tracker for the Yes Theory "100 Days of Sweat" challenge: one worko
 - Built and tested locally with `wrangler dev` (login, day upsert, health ingest, photo upload/serve, streak, summary, sync error handling).
 - NOT yet deployed: user needs `npx wrangler login`, `npx wrangler secret put ADMIN_TOKEN`, `npm run db:migrate`, `npm run deploy`.
 - Instagram/TikTok developer apps not yet created (steps in README).
-- Google Health (Fitbit) sync not yet built: add to `src/sync.js` alongside Instagram/TikTok, store tokens in `oauth_tokens` (platform `google_health`), write steps/workout minutes/resting HR into the same `days` columns the Apple Health ingest uses (fill-empty-only).
+- Google Health (Fitbit) sync built (19 Oct 2026); needs `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` secrets and a deploy, then Connect on `/log.html`. Untested against a real account yet.
 - Benchmarks built (table, API, log form, dashboard tiles + chart).
 - Ideas not built yet: evening reminder, daily share card for Stories, end-of-challenge recap page, top-posts list (reach/shares/saves are already stored).
 

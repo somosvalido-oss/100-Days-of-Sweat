@@ -1,16 +1,68 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Privacy & Terms · 100 Days of Sweat</title><link rel="stylesheet" href="/app.css"></head>
+<title>Privacy Policy · 100 Days of Sweat</title>
+<meta name="description" content="Privacy policy and terms for the 100 Days of Sweat tracker.">
+<link rel="stylesheet" href="/app.css">
+<style>.wrap p, .wrap li { line-height: 1.6; } .wrap ul { padding-left: 20px; } .wrap h2 { margin-top: 32px; }</style>
+</head>
 <body><div class="wrap" style="max-width:680px">
 <a href="/" class="small muted">← Dashboard</a>
-<h1 style="font-size:32px;margin:24px 0 8px">Privacy &amp; Terms</h1>
-<p class="muted">This is a personal, non-commercial project that tracks one person's 100-day fitness challenge.</p>
-<h2>What is collected</h2>
-<p>Only the site owner's own data: workouts they log, photos they upload, and statistics (views, likes, follower counts) of their own Instagram and TikTok posts, read through the official APIs with their permission.</p>
-<h2>How it is used</h2>
-<p>To display progress on this dashboard. Nothing is sold or shared with third parties. Data is stored on Cloudflare (D1 and R2).</p>
-<h2>Removal</h2>
-<p>The owner can disconnect any account at any time in the platform's settings and delete all stored data.</p>
+<h1 style="font-size:32px;margin:24px 0 8px">Privacy Policy &amp; Terms</h1>
+<p class="muted">Last updated 19 October 2026</p>
+
+<p>100 Days of Sweat (<a href="https://100daysofsweat.com">100daysofsweat.com</a>) is a personal, non-commercial project. It tracks one person's 100-day fitness challenge (17 October 2026 – 24 January 2027): a daily workout and a daily Instagram Reel / TikTok. Only the site owner can sign in, log entries or connect accounts. Everyone else can only view the public dashboard.</p>
+
+<h2>Data the site collects</h2>
+<p>The site only collects the owner's own data:</p>
+<ul>
+  <li><b>Entries the owner logs:</b> workout type and duration, intensity, mood, energy, weight, resting heart rate, notes, Reel links, benchmark test results and photos.</li>
+  <li><b>Instagram and TikTok:</b> statistics about the owner's own posts and account (views, likes, comments, shares, saves, reach, follower counts, captions and links). These are read through the official APIs with the owner's permission.</li>
+  <li><b>Apple Health:</b> steps, workouts, active calories, resting heart rate and weight. The owner sends these from their iPhone through an Apple Shortcut.</li>
+  <li><b>Google Health API (Fitbit / Pixel Watch):</b> if the owner connects their Google account, the site reads:
+    <ul>
+      <li>daily step count</li>
+      <li>daily active calories burned</li>
+      <li>exercise sessions (type, date and duration)</li>
+      <li>daily resting heart rate</li>
+    </ul>
+    It requests read-only access, and only to two scopes: <code>googlehealth.activity_and_fitness.readonly</code> and <code>googlehealth.health_metrics_and_measurements.readonly</code>. It never writes to, changes or deletes anything in the Google account. It doesn't read location, sleep, nutrition, ECG or reproductive-health data, and it doesn't read profile information beyond what is needed to sign in.</li>
+</ul>
+<p><b>Visitors:</b> the site has no visitor accounts, analytics, advertising or tracking cookies. The only cookie is the owner's login cookie. To block password guessing, the IP address of a failed login attempt is stored for at most 24 hours. Cloudflare, which hosts the site, processes standard technical request data (such as IP addresses) to deliver and protect it.</p>
+
+<h2>How the data is used</h2>
+<p>The data is used only to show the challenge's progress on this site:</p>
+<ul>
+  <li><b>Shown publicly on the dashboard:</b> the day counter and streak, workout type and minutes, daily steps, Reel status and post statistics, benchmark results and photos the owner marks as public.</li>
+  <li><b>Visible only to the owner when signed in:</b> mood, energy, weight, resting heart rate, active calories, notes and private photos.</li>
+</ul>
+<p>Data from Google Health only fills in the daily step count, workout minutes, calories and resting heart rate described above. Anything the owner logs by hand takes priority.</p>
+
+<h2>Google API Services: Limited Use</h2>
+<p>The use and transfer of information received from Google APIs to any other app adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, including the Limited Use requirements. In particular, data from the Google Health API:</p>
+<ul>
+  <li>is used only to provide the features described on this page;</li>
+  <li>is not sold, and not used for advertising, credit-worthiness checks or lending;</li>
+  <li>is not used to train artificial intelligence or machine learning models;</li>
+  <li>is not transferred to anyone, except as needed to run the site (hosting on Cloudflare), to comply with the law, or as part of a merger or acquisition with the owner's consent;</li>
+  <li>is not read by any human other than the owner.</li>
+</ul>
+
+<h2>Sharing</h2>
+<p>No personal data is sold, rented or shared with third parties. The data is stored with Cloudflare (Workers, D1 database and R2 storage), which acts only as the hosting provider.</p>
+
+<h2>Storage and security</h2>
+<p>All traffic uses HTTPS. Access tokens for Google, Instagram and TikTok are kept server-side in the database. They are never sent to the browser or shown on any page. Editing requires the owner's password.</p>
+
+<h2>Retention and deletion</h2>
+<ul>
+  <li>Data is kept for as long as the owner keeps the project running. The owner can delete any entry, photo or all stored data at any time.</li>
+  <li>Choosing <b>Disconnect</b> for Google Health on the log page revokes the site's Google access and deletes the stored tokens. Access can also be removed at any time at <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>. Either way, syncing stops immediately.</li>
+  <li>Instagram and TikTok access can be removed the same way in each platform's app settings.</li>
+</ul>
+
 <h2>Terms</h2>
-<p>The site is provided as is, for personal use. No other users can sign in.</p>
+<p>The site is provided as is, for personal use. No one other than the owner can sign in or connect accounts.</p>
+
+<h2>Changes</h2>
+<p>If this policy changes, the new version will be posted on this page with a new "last updated" date.</p>
 </div></body></html>
